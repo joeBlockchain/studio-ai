@@ -8,14 +8,23 @@ import {
   BreadcrumbItem,
   BreadcrumbList,
   BreadcrumbPage,
+  BreadcrumbLink,
+  BreadcrumbSeparator
 } from "@/components/ui/breadcrumb";
 import { Separator } from "@/components/ui/separator";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useParams } from "next/navigation";
 
-export default function Page() {
-  const [isSidebarRightOpen, setIsSidebarRightOpen] = useState(false);
+export default function AppLayout({
+    children,
+  }: Readonly<{
+    children: React.ReactNode;
+  }>) {
+  const [isSidebarRightOpen, setIsSidebarRightOpen] = useState(true);
+  const params = useParams();
+  const agentId = typeof params?.id === 'string' ? params.id : undefined;
 
   const toggleSidebarRight = () => setIsSidebarRightOpen((prev) => !prev);
 
@@ -30,9 +39,13 @@ export default function Page() {
             <Separator orientation="vertical" className="mr-2 h-4" />
             <Breadcrumb className="flex-1">
               <BreadcrumbList>
+              <BreadcrumbItem>
+      <BreadcrumbLink href="/">Home</BreadcrumbLink>
+    </BreadcrumbItem>
+    <BreadcrumbSeparator />
                 <BreadcrumbItem>
                   <BreadcrumbPage className="line-clamp-1">
-                  Home
+                    Agent
                   </BreadcrumbPage>
                 </BreadcrumbItem>
               </BreadcrumbList>
@@ -51,12 +64,12 @@ export default function Page() {
           </div>
         </header>
         {/* Content Body */}
-        <div className="mb-8">
-        
+        <div className="mx-4">
+        {children}
         </div>
       </div>
 
-      <SidebarRight isOpen={isSidebarRightOpen} />
+      <SidebarRight isOpen={isSidebarRightOpen} agentId={agentId} />
     </SidebarProvider>
   );
 }
