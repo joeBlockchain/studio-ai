@@ -17,13 +17,13 @@ interface Agent {
   created_at: string;
 }
 
-// interface AgentStarter {
-//   starter_text: string;
-// }
+interface AgentStarter {
+  starter_text: string;
+}
 
-// interface AgentKnowledge {
-//   content: string;
-// }
+interface AgentKnowledge {
+  content: string;
+}
 
 export default function AgentPage() {
   const params = useParams();
@@ -65,14 +65,14 @@ export default function AgentPage() {
         // Fetch agent knowledge
         const { data: knowledgeData, error: knowledgeError } = await supabase
           .from("agent_knowledge")
-          .select("knowledge(content)")
+          .select("content")
           .eq("agent_id", id)
           .single();
 
         if (knowledgeError) throw knowledgeError;
 
-        if (knowledgeData?.knowledge?.content) {
-          setKnowledge(knowledgeData.knowledge.content);
+        if (knowledgeData?.content) {
+          setKnowledge(knowledgeData.content);
         }
       } catch (error) {
         console.error("Error fetching agent data:", error);

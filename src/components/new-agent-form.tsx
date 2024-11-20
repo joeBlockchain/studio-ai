@@ -81,7 +81,7 @@ export default function NewAgentForm({ initialData }: NewAgentFormProps) {
     }
   });
 
-  async function onSubmit(values: z.infer<typeof formSchema>, files: File[] | null) {
+  async function onSubmit(values: z.infer<typeof formSchema>) {
     try {
       // Start by inserting or selecting the knowledge item
       let knowledgeId: string | null = null;
@@ -182,19 +182,17 @@ export default function NewAgentForm({ initialData }: NewAgentFormProps) {
             if (uploadError) throw uploadError;
   
             // Get the public URL (if bucket is public)
-            const { publicURL, error: urlError } = supabase
+            const { data: { publicUrl } } = supabase
               .storage
               .from('knowledge_files')
               .getPublicUrl(data.path);
-  
-            if (urlError) throw urlError;
   
             // Insert file reference into the database
             const { error: fileInsertError } = await supabase
               .from('agent_knowledge_files')
               .upsert({
                 knowledge_id: knowledgeId,
-                file_url: publicURL,
+                file_url: publicUrl,
                 file_name: file.name,
               });
   
@@ -267,19 +265,17 @@ export default function NewAgentForm({ initialData }: NewAgentFormProps) {
             if (uploadError) throw uploadError;
   
             // Get the public URL (if bucket is public)
-            const { publicURL, error: urlError } = supabase
+            const { data: { publicUrl } } = supabase
               .storage
               .from('knowledge_files')
               .getPublicUrl(data.path);
-  
-            if (urlError) throw urlError;
   
             // Insert file reference into the database
             const { error: fileInsertError } = await supabase
               .from('agent_knowledge_files')
               .insert({
                 knowledge_id: knowledgeId,
-                file_url: publicURL,
+                file_url: publicUrl,
                 file_name: file.name,
               });
   
@@ -301,7 +297,7 @@ export default function NewAgentForm({ initialData }: NewAgentFormProps) {
   return (
     <Form {...form}>
       <form
-        onSubmit={form.handleSubmit(onSubmit)}
+        onSubmit={form.handleSubmit((values) => onSubmit(values))}
         className="space-y-8 max-w-3xl mx-auto my-0 py-0"
       >
         <FormField
