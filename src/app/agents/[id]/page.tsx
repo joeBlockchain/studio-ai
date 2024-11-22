@@ -21,8 +21,22 @@ interface AgentStarter {
   starter_text: string;
 }
 
-interface AgentKnowledge {
-  content: string;
+interface KnowledgeEntry {
+  knowledge_id: string;
+  knowledge: {
+    id: string;
+    content: string;
+  };
+}
+
+interface KnowledgeFile {
+  id: string;
+  knowledge_id: string;
+  file_url: string;
+  file_name: string;
+  uploaded_at: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export default function AgentPage() {
@@ -33,6 +47,7 @@ export default function AgentPage() {
   const [starters, setStarters] = useState<string[]>([]);
   const [knowledge, setKnowledge] = useState<string>("");
   const [loading, setLoading] = useState(true);
+  const [files, setFiles] = useState<KnowledgeFile[]>([]);
   const supabase = createClient();
 
   useEffect(() => {
@@ -62,18 +77,43 @@ export default function AgentPage() {
           setStarters(startersData.map((s: { starter_text: string }) => s.starter_text));
         }
 
-        // Fetch agent knowledge
+        // Fetch agent knowledge with content
         const { data: knowledgeData, error: knowledgeError } = await supabase
           .from("agent_knowledge")
-          .select("content")
-          .eq("agent_id", id)
-          .single();
+          .select(`
+            knowledge_id,
+            knowledge (
+              id,
+              content
+            )
+          `)
+          .eq("agent_id", id) as { 
+            data: KnowledgeEntry[] | null; 
+            error: any; 
+          };
 
         if (knowledgeError) throw knowledgeError;
 
-        if (knowledgeData?.content) {
-          setKnowledge(knowledgeData.content);
+        if (knowledgeData && knowledgeData.length > 0) {
+          // Combine all knowledge content
+          const combinedContent = knowledgeData
+            .map(k => k.knowledge.content)
+            .join('\n\n');
+          setKnowledge(combinedContent);
+
+          // Fetch files for all knowledge entries
+          const knowledgeIds = knowledgeData.map(k => k.knowledge_id);
+          const { data: filesData, error: filesError } = await supabase
+            .from("agent_knowledge_files")
+            .select("*")
+            .in("knowledge_id", knowledgeIds);
+
+          if (filesError) throw filesError;
+          if (filesData) {
+            setFiles(filesData);
+          }
         }
+
       } catch (error) {
         console.error("Error fetching agent data:", error);
         notFound();
@@ -112,6 +152,7 @@ export default function AgentPage() {
             vm: agent.vm,
             starters: starters,
             knowledge: knowledge,
+            files: files,
           }}
         />
     </div>

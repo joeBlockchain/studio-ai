@@ -32,7 +32,7 @@ const data = {
   user: {
     name: "Joe Taylor",
     email: "jtaylor@fintegrity.com",
-    avatar: "/avatars/shadcn.jpg",
+    avatar: "/",
   },
   teams: [
     {

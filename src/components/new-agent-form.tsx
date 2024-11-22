@@ -29,17 +29,30 @@ import {
   FileUploaderItem,
 } from "@/components/ui/file-upload";
 import { Switch } from "@/components/ui/switch";
+import { Card } from "./ui/card";
 
 const formSchema = z.object({
   agent_name: z.string(),
   agent_description: z.string().optional(),
   agent_instructions: z.string(),
   agent_starters: z.array(z.string()).default([""]),
-  agent_knowledge: z.string().optional(),
+  agent_knowledge: z
+    .array(z.instanceof(File))
+    .optional(),
   agent_web: z.boolean().optional(),
   agent_image: z.boolean().optional(),
   agent_vm: z.boolean().optional(),
 });
+
+interface KnowledgeFile {
+  id: string;
+  knowledge_id: string;
+  file_url: string;
+  file_name: string;
+  uploaded_at: string;
+  created_at: string;
+  updated_at: string;
+}
 
 interface NewAgentFormProps {
   initialData?: {
@@ -52,11 +65,15 @@ interface NewAgentFormProps {
     vm?: boolean;
     starters?: string[];
     knowledge?: string;
+    files?: KnowledgeFile[];
   };
 }
 
 export default function NewAgentForm({ initialData }: NewAgentFormProps) {
   const [files, setFiles] = useState<File[] | null>(null);
+  const [existingFiles, setExistingFiles] = useState<KnowledgeFile[]>(
+    initialData?.files || []
+  );
 
   const supabase = createClient();
   const router = useRouter();
@@ -74,7 +91,7 @@ export default function NewAgentForm({ initialData }: NewAgentFormProps) {
       agent_description: initialData?.description || "",
       agent_instructions: initialData?.instructions || "",
       agent_starters: initialData?.starters ? [...initialData.starters, ""] : [""],
-      agent_knowledge: initialData?.knowledge || "",
+      agent_knowledge: [],
       agent_web: initialData?.web || false,
       agent_image: initialData?.image_generation || false,
       agent_vm: initialData?.vm || false,
@@ -83,39 +100,10 @@ export default function NewAgentForm({ initialData }: NewAgentFormProps) {
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
     try {
-      // Start by inserting or selecting the knowledge item
-      let knowledgeId: string | null = null;
-  
-      if (values.agent_knowledge) {
-        // Check if the knowledge already exists to prevent duplicates
-        const { data: existingKnowledge, error: fetchError } = await supabase
-          .from('knowledge')
-          .select('id')
-          .eq('content', values.agent_knowledge)
-          .single();
-  
-        if (fetchError && fetchError.code !== 'PGRST116') { // PGRST116: Row not found
-          throw fetchError;
-        }
-  
-        if (existingKnowledge) {
-          knowledgeId = existingKnowledge.id;
-        } else {
-          // Insert new knowledge
-          const { data: newKnowledge, error: insertError } = await supabase
-            .from('knowledge')
-            .insert({ content: values.agent_knowledge })
-            .select()
-            .single();
-  
-          if (insertError) throw insertError;
-  
-          knowledgeId = newKnowledge.id;
-        }
-      }
-  
+      // Create or update agent first to get agentId
+      let agentId: string;
       if (initialData?.id) {
-        // Update existing agent
+        agentId = initialData.id;
         const { error: agentError } = await supabase
           .from('agents')
           .update({
@@ -126,85 +114,10 @@ export default function NewAgentForm({ initialData }: NewAgentFormProps) {
             image_generation: values.agent_image || false,
             vm: values.agent_vm || false,
           })
-          .eq('id', initialData.id);
-  
+          .eq('id', agentId);
+
         if (agentError) throw agentError;
-
-        // Update agent starters
-        if (values.agent_starters && values.agent_starters.length > 0) {
-          // First, delete existing starters
-          await supabase
-            .from('agent_starters')
-            .delete()
-            .eq('agent_id', initialData.id);
-
-          // Then insert new ones
-          const starters = values.agent_starters
-            .filter(starter => starter.trim() !== '')
-            .map(starter => ({
-              agent_id: initialData.id,
-              starter_text: starter,
-            }));
-  
-          if (starters.length > 0) {
-            const { error: startersError } = await supabase
-              .from('agent_starters')
-              .insert(starters);
-  
-            if (startersError) throw startersError;
-          }
-        }
-
-        // Associate knowledge with agent
-        if (knowledgeId) {
-          const { error: assocError } = await supabase
-            .from('agent_knowledge')
-            .upsert({
-              agent_id: initialData.id,
-              knowledge_id: knowledgeId,
-            });
-  
-          if (assocError) throw assocError;
-        }
-
-        // Handle file uploads if any
-        if (files && files.length > 0) {
-          const uploadPromises = files.map(async (file) => {
-            // Upload file to Supabase Storage
-            const filePath = `agent_${initialData.id}/${file.name}`;
-            const { data, error: uploadError } = await supabase
-              .storage
-              .from('knowledge_files')
-              .upload(filePath, file, {
-                upsert: false,
-              });
-  
-            if (uploadError) throw uploadError;
-  
-            // Get the public URL (if bucket is public)
-            const { data: { publicUrl } } = supabase
-              .storage
-              .from('knowledge_files')
-              .getPublicUrl(data.path);
-  
-            // Insert file reference into the database
-            const { error: fileInsertError } = await supabase
-              .from('agent_knowledge_files')
-              .upsert({
-                knowledge_id: knowledgeId,
-                file_url: publicUrl,
-                file_name: file.name,
-              });
-  
-            if (fileInsertError) throw fileInsertError;
-          });
-  
-          await Promise.all(uploadPromises);
-        }
-
-        toast.success("Agent updated successfully!");
       } else {
-        // Insert new agent
         const { data: agent, error: agentError } = await supabase
           .from('agents')
           .insert({
@@ -217,80 +130,129 @@ export default function NewAgentForm({ initialData }: NewAgentFormProps) {
           })
           .select()
           .single();
-  
-        if (agentError) throw agentError;
-  
-        // Insert agent starters
-        if (values.agent_starters && values.agent_starters.length > 0) {
-          const starters = values.agent_starters
-            .filter(starter => starter.trim() !== '')
-            .map(starter => ({
-              agent_id: agent.id,
-              starter_text: starter,
-            }));
-  
-          if (starters.length > 0) {
-            const { error: startersError } = await supabase
-              .from('agent_starters')
-              .insert(starters);
-  
-            if (startersError) throw startersError;
-          }
-        }
 
-        // Associate knowledge with agent
-        if (knowledgeId) {
+        if (agentError) throw agentError;
+        agentId = agent.id;
+      }
+
+      // Handle file-based knowledge
+      if (files && files.length > 0) {
+        for (const file of files) {
+          // Read the file content
+          const content = await file.text();
+
+          // Insert or get existing knowledge
+          const { data: existingKnowledge, error: fetchError } = await supabase
+            .from('knowledge')
+            .select('id')
+            .eq('content', content)
+            .single();
+
+          let knowledgeId: string;
+          
+          if (fetchError && fetchError.code === 'PGRST116') {
+            // Knowledge doesn't exist, create new
+            const { data: newKnowledge, error: insertError } = await supabase
+              .from('knowledge')
+              .insert({ content })
+              .select()
+              .single();
+
+            if (insertError) throw insertError;
+            knowledgeId = newKnowledge.id;
+          } else if (fetchError) {
+            throw fetchError;
+          } else {
+            knowledgeId = existingKnowledge.id;
+          }
+
+          // Associate knowledge with agent
           const { error: assocError } = await supabase
             .from('agent_knowledge')
-            .insert({
-              agent_id: agent.id,
+            .upsert({
+              agent_id: agentId,
               knowledge_id: knowledgeId,
             });
-  
+
           if (assocError) throw assocError;
-        }
 
-        // Handle file uploads if any
-        if (files && files.length > 0) {
-          const uploadPromises = files.map(async (file) => {
-            // Upload file to Supabase Storage
-            const filePath = `agent_${agent.id}/${file.name}`;
-            const { data, error: uploadError } = await supabase
-              .storage
-              .from('knowledge_files')
-              .upload(filePath, file, {
-                upsert: false,
-              });
-  
-            if (uploadError) throw uploadError;
-  
-            // Get the public URL (if bucket is public)
-            const { data: { publicUrl } } = supabase
-              .storage
-              .from('knowledge_files')
-              .getPublicUrl(data.path);
-  
-            // Insert file reference into the database
-            const { error: fileInsertError } = await supabase
-              .from('agent_knowledge_files')
-              .insert({
-                knowledge_id: knowledgeId,
-                file_url: publicUrl,
-                file_name: file.name,
-              });
-  
-            if (fileInsertError) throw fileInsertError;
-          });
-  
-          await Promise.all(uploadPromises);
-        }
+          // Upload file to storage
+          const filePath = `agent_${agentId}/${file.name}`;
+          const { data: uploadData, error: uploadError } = await supabase
+            .storage
+            .from('knowledge_files')
+            .upload(filePath, file, {
+              upsert: false,
+            });
 
+          if (uploadError) throw uploadError;
+
+          // Get public URL and store file reference
+          const { data: { publicUrl } } = supabase
+            .storage
+            .from('knowledge_files')
+            .getPublicUrl(uploadData.path);
+
+          const { error: fileInsertError } = await supabase
+            .from('agent_knowledge_files')
+            .insert({
+              knowledge_id: knowledgeId,
+              file_url: publicUrl,
+              file_name: file.name,
+            });
+
+          if (fileInsertError) throw fileInsertError;
+        }
+      }
+
+      // Insert agent starters
+      if (values.agent_starters && values.agent_starters.length > 0) {
+        const starters = values.agent_starters
+          .filter(starter => starter.trim() !== '')
+          .map(starter => ({
+            agent_id: agentId,
+            starter_text: starter,
+          }));
+  
+        if (starters.length > 0) {
+          const { error: startersError } = await supabase
+            .from('agent_starters')
+            .insert(starters);
+  
+          if (startersError) throw startersError;
+        }
+      }
+
+      if (initialData?.id) {
+        toast.success("Agent updated successfully!");
+      } else {
         toast.success("Agent created successfully!");
-        router.push(`/agents/${agent.id}`);
+        router.push(`/agents/${agentId}`);
       }
     } catch (error) {
       console.error("Form submission error", error);
       toast.error("Failed to submit the form. Please try again.");
+    }
+  }
+
+  async function handleDeleteFile(fileId: string) {
+    try {
+      const fileToDelete = existingFiles.find(f => f.id === fileId);
+      if (!fileToDelete) return;
+
+      const { error } = await supabase
+        .from('agent_knowledge_files')
+        .delete()
+        .eq('id', fileId);
+
+      if (error) throw error;
+
+      // Update the UI
+      setExistingFiles(prev => prev.filter(f => f.id !== fileId));
+      toast.success("File deleted successfully");
+    } catch (error) {
+      console.error("Error deleting file:", error);
+      toast.error("Failed to delete file");
     }
   }
 
@@ -410,6 +372,36 @@ export default function NewAgentForm({ initialData }: NewAgentFormProps) {
           )}
         />
 
+        {/* Display existing files */}
+        {existingFiles.length > 0 && (
+          <div className="space-y-4">
+            <FormLabel>Existing Knowledge Files</FormLabel>
+            <div className="space-y-2">
+              {existingFiles.map(file => (
+                <Card key={file.id} className="flex items-center justify-between p-2">
+                  <a 
+                    href={file.file_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-500 hover:underline flex items-center gap-2"
+                  >
+                    <Paperclip className="h-4 w-4" />
+                    {file.file_name}
+                  </a>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => handleDeleteFile(file.id)}
+                  >
+                    Delete
+                  </Button>
+                </Card>
+              ))}
+            </div>
+          </div>
+        )}        
+
         <FormField
           control={form.control}
           name="agent_knowledge"
@@ -458,6 +450,7 @@ export default function NewAgentForm({ initialData }: NewAgentFormProps) {
             </FormItem>
           )}
         />
+
 <div className="flex flex-col gap-4">
         <FormField
           control={form.control}
@@ -523,6 +516,8 @@ export default function NewAgentForm({ initialData }: NewAgentFormProps) {
           )}
         />
         </div>
+
+
         <Button type="submit" className="w-full">
           {initialData?.id ? "Update Agent" : "Create Agent"}
         </Button>
